@@ -15,7 +15,7 @@
 }:
 buildNpmPackage (finalAttrs: {
   pname = "claude-code";
-  version = "";
+  version = "2.1.78";
 
   src = fetchzip {
     url = "https://registry.npmjs.org/@anthropic-ai/claude-code/-/claude-code-${finalAttrs.version}.tgz";
