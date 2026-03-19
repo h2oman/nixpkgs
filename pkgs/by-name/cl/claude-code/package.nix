@@ -19,7 +19,7 @@ buildNpmPackage (finalAttrs: {
 
   src = fetchzip {
     url = "https://registry.npmjs.org/@anthropic-ai/claude-code/-/claude-code-${finalAttrs.version}.tgz";
-    hash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+    hash = "sha256-SwR+d1EY7U8RytYIj3jsynsm+pVqp2eL8jrDRXLJino=";
   };
 
   npmDepsHash = "sha256-rhmItpljv64RgXK++WsuRM8fOJ/cGmOCtkaVywa4tqY=";
