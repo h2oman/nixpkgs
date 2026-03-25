@@ -22,7 +22,7 @@ buildNpmPackage (finalAttrs: {
     hash = "sha256-tRrJ1UuolwI9d7ZOvBml0xJ9yZ3u57vGBfvF69artI8=";
   };
 
-  npmDepsHash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+  npmDepsHash = "sha256-ll47m1mgOur+cbx8MkNRttSUCXyKKG5ZlceH1lhC5Y0=";
 
   strictDeps = true;
 
