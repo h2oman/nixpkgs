@@ -1,0 +1,119 @@
+name: claude-code fork sync
+
+# Syncs h2oman/nixpkgs:master from upstream NixOS/nixpkgs, then
+# fast-forwards claude-code-latest to master when safe to do so.
+# Pairs with claude-code-auto-bump.yml (h2oman/nixos-playground#249):
+# this runs 30 minutes earlier so the bump workflow operates on a
+# freshly-synced claude-code-latest.
+#
+# Holds no credential outside this repo (GITHUB_TOKEN only, same-repo
+# contents:write). Refuses to fast-forward if the same version on master
+# and claude-code-latest has different linux-x64 hashes (supply-chain
+# signal per .claude/skills/claude-code-update/SKILL.md).
+
+on:
+  # 01:30 UTC = 19:30 Alberta (permanent MDT, UTC-6, no DST).
+  # Tue-Sat UTC -> Mon-Fri local evenings, 30 min before auto-bump.
+  schedule:
+    - cron: '30 1 * * 2-6'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+# Shared concurrency group with claude-code-auto-bump.yml so sync
+# and bump never race against each other on claude-code-latest.
+concurrency:
+  group: claude-code-fork-mutations
+  cancel-in-progress: false
+
+env:
+  MANIFEST_PATH: pkgs/by-name/cl/claude-code/manifest.json
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Sync master from upstream NixOS/nixpkgs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eo pipefail
+          RESULT=$(gh api repos/${{ github.repository }}/merge-upstream \
+            --method POST \
+            --field branch=master)
+          echo "${RESULT}"
+          MERGE_TYPE=$(echo "${RESULT}" | jq -r .merge_type)
+          echo "::notice::merge-upstream result: ${MERGE_TYPE}"
+
+      - name: Read master manifest (version + linux-x64 hash)
+        id: master
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eo pipefail
+          MANIFEST=$(gh api "repos/${{ github.repository }}/contents/${MANIFEST_PATH}?ref=master" \
+            --jq '.content' | base64 -d)
+          VERSION=$(echo "${MANIFEST}" | jq -r .version)
+          HASH=$(echo "${MANIFEST}" | jq -r '.platforms["linux-x64"].checksum')
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "linux_x64_hash=${HASH}" >> "$GITHUB_OUTPUT"
+          echo "master: version=${VERSION} linux-x64-sha256=${HASH}"
+
+      - name: Read claude-code-latest manifest (version + linux-x64 hash)
+        id: latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eo pipefail
+          MANIFEST=$(gh api "repos/${{ github.repository }}/contents/${MANIFEST_PATH}?ref=claude-code-latest" \
+            --jq '.content' | base64 -d)
+          VERSION=$(echo "${MANIFEST}" | jq -r .version)
+          HASH=$(echo "${MANIFEST}" | jq -r '.platforms["linux-x64"].checksum')
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "linux_x64_hash=${HASH}" >> "$GITHUB_OUTPUT"
+          echo "claude-code-latest: version=${VERSION} linux-x64-sha256=${HASH}"
+
+      - name: Decide fast-forward action
+        id: decide
+        run: |
+          set -eo pipefail
+          MV="${{ steps.master.outputs.version }}"
+          LV="${{ steps.latest.outputs.version }}"
+          MH="${{ steps.master.outputs.linux_x64_hash }}"
+          LH="${{ steps.latest.outputs.linux_x64_hash }}"
+
+          if [ "${MV}" = "${LV}" ]; then
+            if [ "${MH}" = "${LH}" ]; then
+              echo "::notice::Same version ${MV} on both, hashes match — safe to fast-forward (absorbs upstream's non-manifest changes)"
+              echo "action=fast_forward" >> "$GITHUB_OUTPUT"
+            else
+              echo "::error::Version ${MV} on both master and claude-code-latest but linux-x64 hashes differ. master=${MH}, claude-code-latest=${LH}. Supply-chain signal — refusing to fast-forward."
+              exit 1
+            fi
+          else
+            NEWER=$(printf '%s\n%s\n' "${MV}" "${LV}" | sort -V | tail -1)
+            if [ "${NEWER}" = "${MV}" ]; then
+              echo "::notice::Master has newer version (${MV}) than claude-code-latest (${LV}) — fast-forwarding"
+              echo "action=fast_forward" >> "$GITHUB_OUTPUT"
+            else
+              echo "::notice::claude-code-latest (${LV}) is ahead of master (${MV}) — skipping (would downgrade)"
+              echo "action=skip" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
+      - name: Fast-forward claude-code-latest to master
+        if: steps.decide.outputs.action == 'fast_forward'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eo pipefail
+          MASTER_SHA=$(gh api "repos/${{ github.repository }}/branches/master" --jq '.commit.sha')
+          OLD_SHA=$(gh api "repos/${{ github.repository }}/branches/claude-code-latest" --jq '.commit.sha')
+          echo "Fast-forwarding claude-code-latest: ${OLD_SHA} -> ${MASTER_SHA}"
+          gh api "repos/${{ github.repository }}/git/refs/heads/claude-code-latest" \
+            --method PATCH \
+            --field sha="${MASTER_SHA}" \
+            --field force=true \
+            --jq '{ref, new_sha: .object.sha}'
+          echo "::notice::claude-code-latest now at ${MASTER_SHA}"
