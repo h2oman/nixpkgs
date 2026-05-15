@@ -1,0 +1,95 @@
+name: claude-code auto-bump
+
+# Watches Anthropic's release pointer and commits manifest.json updates
+# directly to claude-code-latest. Layer 1 of a two-layer automation
+# (see h2oman/nixos-playground#249). Holds no credential outside this
+# repo: a compromise here cannot reach into personal infrastructure.
+
+on:
+  # 02:00 UTC = 20:00 Alberta time (permanent MDT, UTC-6, no DST).
+  # UTC days Tue-Sat correspond to Mon-Fri evenings local time.
+  schedule:
+    - cron: '0 2 * * 2-6'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: claude-code-auto-bump
+  cancel-in-progress: false
+
+env:
+  BASE_URL: https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases
+  MANIFEST_PATH: pkgs/by-name/cl/claude-code/manifest.json
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout claude-code-latest
+        uses: actions/checkout@v4
+        with:
+          ref: claude-code-latest
+
+      - name: Read latest version from Anthropic
+        id: latest
+        run: |
+          LATEST=$(curl -fsSL "${BASE_URL}/latest")
+          echo "version=${LATEST}" >> "$GITHUB_OUTPUT"
+          echo "Latest on Anthropic GCS: ${LATEST}"
+
+      - name: Read current version from manifest
+        id: current
+        run: |
+          CURRENT=$(jq -r .version "${MANIFEST_PATH}")
+          echo "version=${CURRENT}" >> "$GITHUB_OUTPUT"
+          echo "Current on claude-code-latest: ${CURRENT}"
+
+      - name: Decide whether to bump
+        id: decide
+        run: |
+          if [ "${{ steps.latest.outputs.version }}" = "${{ steps.current.outputs.version }}" ]; then
+            echo "::notice::manifest.json already at ${{ steps.current.outputs.version }} — no bump needed"
+            echo "needs_bump=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::Bump needed: ${{ steps.current.outputs.version }} -> ${{ steps.latest.outputs.version }}"
+            echo "needs_bump=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Fetch canonical manifest for new version
+        if: steps.decide.outputs.needs_bump == 'true'
+        run: |
+          mkdir -p /tmp/cc-bump
+          curl -fsSL "${BASE_URL}/${{ steps.latest.outputs.version }}/manifest.json" \
+            --output /tmp/cc-bump/manifest.json
+          echo "Fetched manifest for ${{ steps.latest.outputs.version }}"
+
+      - name: Sanity-check linux-x64 binary hash
+        if: steps.decide.outputs.needs_bump == 'true'
+        run: |
+          EXPECTED=$(jq -r '.platforms["linux-x64"].checksum' /tmp/cc-bump/manifest.json)
+          echo "Expected sha256 (linux-x64): ${EXPECTED}"
+          curl -fsSL "${BASE_URL}/${{ steps.latest.outputs.version }}/linux-x64/claude" \
+            --output /tmp/cc-bump/claude-linux-x64
+          ACTUAL=$(sha256sum /tmp/cc-bump/claude-linux-x64 | awk '{print $1}')
+          echo "Actual sha256 (linux-x64): ${ACTUAL}"
+          if [ "${EXPECTED}" != "${ACTUAL}" ]; then
+            echo "::error::sha256 mismatch for linux-x64 — expected ${EXPECTED}, got ${ACTUAL}"
+            exit 1
+          fi
+          echo "::notice::Sanity check passed for linux-x64"
+
+      - name: Replace manifest.json in-tree
+        if: steps.decide.outputs.needs_bump == 'true'
+        run: |
+          mv /tmp/cc-bump/manifest.json "${MANIFEST_PATH}"
+
+      - name: Commit and push
+        if: steps.decide.outputs.needs_bump == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "${MANIFEST_PATH}"
+          git commit -m "claude-code: ahead-of-upstream bump to ${{ steps.latest.outputs.version }}"
+          git push origin claude-code-latest
