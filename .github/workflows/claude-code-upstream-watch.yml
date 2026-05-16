@@ -1,0 +1,74 @@
+name: claude-code upstream watch
+
+# Daily check: does upstream NixOS/nixpkgs have changes to the
+# claude-code derivation (beyond manifest.json version/hash bumps)?
+# If yes, fail loudly — GitHub's workflow-failure email nudges
+# the user to run Procedure A (claude-code-fork-sync.yml) manually.
+#
+# Filed in response to h2oman/nixos-playground#257: GITHUB_TOKEN
+# cannot write .github/workflows/* so the cron-driven sync workflow
+# was demoted to manual. This watcher provides the signal layer.
+#
+# Holds no credential outside this repo (GITHUB_TOKEN only — read-only
+# Contents API access). Reads public repos; no writes anywhere.
+
+on:
+  # 13:00 UTC = 07:00 Alberta (permanent MDT, UTC-6, no DST).
+  # Daily — claude-code derivation changes are rare; daily polling
+  # is plenty for the use case (nudge expedited manual sync).
+  schedule:
+    - cron: '0 13 * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Compare claude-code derivation: fork master vs upstream master
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eo pipefail
+
+          # List files in pkgs/by-name/cl/claude-code/ on both refs,
+          # excluding manifest.json (version/hash churn — handled by
+          # claude-code-auto-bump.yml). Compare {name, sha} tuples.
+          OURS=$(gh api "repos/${{ github.repository }}/contents/pkgs/by-name/cl/claude-code?ref=master" \
+            --jq '[.[] | select(.name != "manifest.json") | {name, sha}] | sort_by(.name)')
+          THEIRS=$(gh api "repos/NixOS/nixpkgs/contents/pkgs/by-name/cl/claude-code?ref=master" \
+            --jq '[.[] | select(.name != "manifest.json") | {name, sha}] | sort_by(.name)')
+
+          echo "Fork master (excluding manifest.json):"
+          echo "${OURS}" | jq -r '.[] | "  \(.name)  \(.sha)"'
+          echo ""
+          echo "Upstream master (excluding manifest.json):"
+          echo "${THEIRS}" | jq -r '.[] | "  \(.name)  \(.sha)"'
+          echo ""
+
+          if [ "${OURS}" = "${THEIRS}" ]; then
+            echo "::notice::Fork master matches upstream on all claude-code files except manifest.json — no manual sync needed."
+            echo "## Result" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "No upstream changes to claude-code derivation (manifest excluded)." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          echo "::error::Upstream NixOS/nixpkgs has changes to the claude-code derivation. Run claude-code-fork-sync.yml manually."
+
+          {
+            echo "## Result"
+            echo ""
+            echo "**Upstream changes to claude-code derivation detected.** Run \`claude-code-fork-sync.yml\` manually via the Actions UI."
+            echo ""
+            echo "### Diff (manifest.json excluded)"
+            echo ""
+            echo '```diff'
+            diff <(echo "${OURS}" | jq -r '.[] | "\(.name)  \(.sha)"') \
+                 <(echo "${THEIRS}" | jq -r '.[] | "\(.name)  \(.sha)"') || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          exit 1
