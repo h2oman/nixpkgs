@@ -2,9 +2,12 @@ name: claude-code fork sync
 
 # Syncs h2oman/nixpkgs:master from upstream NixOS/nixpkgs, then
 # fast-forwards claude-code-latest to master when safe to do so.
-# Pairs with claude-code-auto-bump.yml (h2oman/nixos-playground#249):
-# this runs 30 minutes earlier so the bump workflow operates on a
-# freshly-synced claude-code-latest.
+# Pairs with claude-code-auto-bump.yml (h2oman/nixos-playground#249).
+#
+# Demoted to manual-only on 2026-05-16 (h2oman/nixos-playground#257):
+# GITHUB_TOKEN cannot write .github/workflows/*, so merge-upstream
+# fails any time upstream touches a workflow file. The watcher
+# (claude-code-upstream-watch.yml) nudges when manual sync is needed.
 #
 # Holds no credential outside this repo (GITHUB_TOKEN only, same-repo
 # contents:write). Refuses to fast-forward if the same version on master
@@ -12,10 +15,6 @@ name: claude-code fork sync
 # signal per .claude/skills/claude-code-update/SKILL.md).
 
 on:
-  # 01:30 UTC = 19:30 Alberta (permanent MDT, UTC-6, no DST).
-  # Tue-Sat UTC -> Mon-Fri local evenings, 30 min before auto-bump.
-  schedule:
-    - cron: '30 1 * * 2-6'
   workflow_dispatch: {}
 
 permissions:
