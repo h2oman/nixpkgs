@@ -27,7 +27,7 @@ jobs:
   watch:
     runs-on: ubuntu-latest
     steps:
-      - name: Compare claude-code derivation: fork master vs upstream master
+      - name: "Compare claude-code derivation: fork master vs upstream master"
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
