@@ -1,7 +1,7 @@
 name: claude-code upstream watch
 
 # Daily check: does upstream NixOS/nixpkgs have changes to the
-# claude-code derivation (beyond manifest.json version/hash bumps)?
+# claude-code derivation (beyond manifest.zst.json version/hash bumps)?
 # If yes, fail loudly — GitHub's workflow-failure email nudges
 # the user to run Procedure A (claude-code-fork-sync.yml) manually.
 #
@@ -34,22 +34,22 @@ jobs:
           set -eo pipefail
 
           # List files in pkgs/by-name/cl/claude-code/ on both refs,
-          # excluding manifest.json (version/hash churn — handled by
+          # excluding manifest.zst.json (version/hash churn — handled by
           # claude-code-auto-bump.yml). Compare {name, sha} tuples.
           OURS=$(gh api "repos/${{ github.repository }}/contents/pkgs/by-name/cl/claude-code?ref=master" \
-            --jq '[.[] | select(.name != "manifest.json") | {name, sha}] | sort_by(.name)')
+            --jq '[.[] | select(.name != "manifest.zst.json") | {name, sha}] | sort_by(.name)')
           THEIRS=$(gh api "repos/NixOS/nixpkgs/contents/pkgs/by-name/cl/claude-code?ref=master" \
-            --jq '[.[] | select(.name != "manifest.json") | {name, sha}] | sort_by(.name)')
+            --jq '[.[] | select(.name != "manifest.zst.json") | {name, sha}] | sort_by(.name)')
 
-          echo "Fork master (excluding manifest.json):"
+          echo "Fork master (excluding manifest.zst.json):"
           echo "${OURS}" | jq -r '.[] | "  \(.name)  \(.sha)"'
           echo ""
-          echo "Upstream master (excluding manifest.json):"
+          echo "Upstream master (excluding manifest.zst.json):"
           echo "${THEIRS}" | jq -r '.[] | "  \(.name)  \(.sha)"'
           echo ""
 
           if [ "${OURS}" = "${THEIRS}" ]; then
-            echo "::notice::Fork master matches upstream on all claude-code files except manifest.json — no manual sync needed."
+            echo "::notice::Fork master matches upstream on all claude-code files except manifest.zst.json — no manual sync needed."
             echo "## Result" >> "$GITHUB_STEP_SUMMARY"
             echo "" >> "$GITHUB_STEP_SUMMARY"
             echo "No upstream changes to claude-code derivation (manifest excluded)." >> "$GITHUB_STEP_SUMMARY"
@@ -63,7 +63,7 @@ jobs:
             echo ""
             echo "**Upstream changes to claude-code derivation detected.** Run \`claude-code-fork-sync.yml\` manually via the Actions UI."
             echo ""
-            echo "### Diff (manifest.json excluded)"
+            echo "### Diff (manifest.zst.json excluded)"
             echo ""
             echo '```diff'
             diff <(echo "${OURS}" | jq -r '.[] | "\(.name)  \(.sha)"') \
