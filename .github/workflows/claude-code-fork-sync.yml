@@ -27,7 +27,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  MANIFEST_PATH: pkgs/by-name/cl/claude-code/manifest.json
+  MANIFEST_PATH: pkgs/by-name/cl/claude-code/manifest.zst.json
 
 jobs:
   sync:
