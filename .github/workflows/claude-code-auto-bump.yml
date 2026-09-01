@@ -1,6 +1,6 @@
 name: claude-code auto-bump
 
-# Watches Anthropic's release pointer and commits manifest.json updates
+# Watches Anthropic's release pointer and commits manifest.zst.json updates
 # directly to claude-code-latest. Layer 1 of a two-layer automation
 # (see h2oman/nixos-playground#249). Holds no credential outside this
 # repo: a compromise here cannot reach into personal infrastructure.
@@ -21,7 +21,7 @@ concurrency:
 
 env:
   BASE_URL: https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases
-  MANIFEST_PATH: pkgs/by-name/cl/claude-code/manifest.json
+  MANIFEST_PATH: pkgs/by-name/cl/claude-code/manifest.zst.json
 
 jobs:
   bump:
@@ -50,7 +50,7 @@ jobs:
         id: decide
         run: |
           if [ "${{ steps.latest.outputs.version }}" = "${{ steps.current.outputs.version }}" ]; then
-            echo "::notice::manifest.json already at ${{ steps.current.outputs.version }} — no bump needed"
+            echo "::notice::manifest.zst.json already at ${{ steps.current.outputs.version }} — no bump needed"
             echo "needs_bump=false" >> "$GITHUB_OUTPUT"
           else
             echo "::notice::Bump needed: ${{ steps.current.outputs.version }} -> ${{ steps.latest.outputs.version }}"
@@ -61,18 +61,19 @@ jobs:
         if: steps.decide.outputs.needs_bump == 'true'
         run: |
           mkdir -p /tmp/cc-bump
-          curl -fsSL "${BASE_URL}/${{ steps.latest.outputs.version }}/manifest.json" \
-            --output /tmp/cc-bump/manifest.json
+          curl -fsSL "${BASE_URL}/${{ steps.latest.outputs.version }}/manifest.zst.json" \
+            --output /tmp/cc-bump/manifest.zst.json
           echo "Fetched manifest for ${{ steps.latest.outputs.version }}"
 
       - name: Sanity-check linux-x64 binary hash
         if: steps.decide.outputs.needs_bump == 'true'
         run: |
-          EXPECTED=$(jq -r '.platforms["linux-x64"].checksum' /tmp/cc-bump/manifest.json)
+          EXPECTED=$(jq -r '.platforms["linux-x64"].checksum' /tmp/cc-bump/manifest.zst.json)
           echo "Expected sha256 (linux-x64): ${EXPECTED}"
-          curl -fsSL "${BASE_URL}/${{ steps.latest.outputs.version }}/linux-x64/claude" \
-            --output /tmp/cc-bump/claude-linux-x64
-          ACTUAL=$(sha256sum /tmp/cc-bump/claude-linux-x64 | awk '{print $1}')
+          BINARY=$(jq -r '.platforms["linux-x64"].binary' /tmp/cc-bump/manifest.zst.json)
+          curl -fsSL "${BASE_URL}/${{ steps.latest.outputs.version }}/linux-x64/${BINARY}" \
+            --output /tmp/cc-bump/claude-linux-x64.zst
+          ACTUAL=$(sha256sum /tmp/cc-bump/claude-linux-x64.zst | awk '{print $1}')
           echo "Actual sha256 (linux-x64): ${ACTUAL}"
           if [ "${EXPECTED}" != "${ACTUAL}" ]; then
             echo "::error::sha256 mismatch for linux-x64 — expected ${EXPECTED}, got ${ACTUAL}"
@@ -80,10 +81,10 @@ jobs:
           fi
           echo "::notice::Sanity check passed for linux-x64"
 
-      - name: Replace manifest.json in-tree
+      - name: Replace manifest.zst.json in-tree
         if: steps.decide.outputs.needs_bump == 'true'
         run: |
-          mv /tmp/cc-bump/manifest.json "${MANIFEST_PATH}"
+          mv /tmp/cc-bump/manifest.zst.json "${MANIFEST_PATH}"
 
       - name: Commit and push
         if: steps.decide.outputs.needs_bump == 'true'
